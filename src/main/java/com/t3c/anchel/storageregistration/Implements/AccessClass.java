@@ -5,6 +5,7 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.Properties;
 
 import org.slf4j.Logger;
@@ -34,17 +35,20 @@ public class AccessClass {
 		logger.debug("Updating file details with uuid {}, specialkey {} and s3url {} " ,uuid,specialKey,s3url);
 		try {
 			Connection conn = (Connection) DriverManager.getConnection(url, user, password);
-			String query = "UPDATE S3BUCKETMAPPING SET specialKey=?, s3fileurl=?" + " WHERE uuid=?";
+			String query = " INSERT into S3BUCKETMAPPING (uuid, specialKey, s3fileurl, processedOn, deleted)"
+					+ " values (?, ?, ?, ?, ?)";
 
 			PreparedStatement preparedStmt = conn.prepareStatement(query);
 
-			preparedStmt.setLong(1, specialKey);
-			preparedStmt.setString(2, s3url);
-			preparedStmt.setString(3, uuid);
-
+			preparedStmt.setString(1, uuid);
+			preparedStmt.setLong(2, specialKey);
+			preparedStmt.setString(3, s3url);
+			preparedStmt.setTimestamp(4, new Timestamp(System.currentTimeMillis()));
+			preparedStmt.setBoolean(5, false);
+			
 			preparedStmt.execute();
+
 			conn.close();
-			logger.debug("Updated file details with uuid {}, specialkey {} and s3url {} successfully. " ,uuid,specialKey,s3url);
 		}
 
 		catch (SQLException e) {
