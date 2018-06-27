@@ -8,5 +8,6 @@ public class SMConstants {
 	public static final String BUCKET_FOLDER = "com.sgs.bucketfolder";
 	public static final String ACCESS_KEY = "com.sgs.access.key";
 	public static final String SECRET_KEY = "com.sgs.secret.key";
+	public static final String CLIENT_REGION = "com.sgs.client.region";
 
 }

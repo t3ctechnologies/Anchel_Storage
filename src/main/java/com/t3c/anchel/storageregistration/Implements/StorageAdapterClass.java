@@ -12,11 +12,15 @@ import org.slf4j.LoggerFactory;
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.AmazonServiceException;
 import com.amazonaws.auth.AWSCredentials;
+import com.amazonaws.auth.AWSCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
-import com.amazonaws.services.s3.model.PutObjectRequest;
+import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.S3ObjectSummary;
+import com.amazonaws.services.s3.transfer.TransferManager;
+import com.amazonaws.services.s3.transfer.TransferManagerBuilder;
+import com.amazonaws.services.s3.transfer.Upload;
 import com.t3c.anchel.common.DbConfiguration;
 import com.t3c.anchel.common.SMConstants;
 import com.t3c.anchel.dto.StorageAccessDTO;
@@ -33,6 +37,7 @@ public abstract class StorageAdapterClass {
 	String accesskey = null;
 	String secretkey = null;
 	String bucketName = null;
+	String region = null;
 	Properties properties = null;
 
 	public StorageAdapterClass() {
@@ -40,6 +45,7 @@ public abstract class StorageAdapterClass {
 		this.accesskey = properties.getProperty(SMConstants.ACCESS_KEY);
 		this.secretkey = properties.getProperty(SMConstants.SECRET_KEY);
 		this.bucketName = properties.getProperty(SMConstants.BUCKET_NAME);
+		this.region = properties.getProperty(SMConstants.CLIENT_REGION);
 	}
 
 	public StorageAdapterClass create(StorageAdapterClass entity) throws BindException, IllegalArgumentException {
@@ -69,39 +75,39 @@ public abstract class StorageAdapterClass {
 
 	public abstract void GetAll(String bucketName, String folderName);
 
-	public String add(StorageAccessDTO storageaccess) {
+	public String add(StorageAccessDTO storageaccess) throws AmazonServiceException, AmazonClientException, InterruptedException {
 		logger.debug("Inserting amazoneDTO : {} to aws S3 bucket.", storageaccess);
 
-		try {
-			credentials = new BasicAWSCredentials(this.accesskey, this.secretkey);
-			s3client = new AmazonS3Client(credentials);
+		credentials = new BasicAWSCredentials(this.accesskey, this.secretkey);
+		s3client = AmazonS3ClientBuilder.standard().withCredentials(new AWSCredentialsProvider() {
+			public void refresh() {
+			}
 
-			File file = new File(storageaccess.getFile());
+			public AWSCredentials getCredentials() {
+				return credentials;
+			}
+		}).withRegion(this.region).build();
 
-			logger.debug("File Is Uploading Wait..... :" + storageaccess);
-			logger.debug("File Name : " + file);
-			s3client.putObject(new PutObjectRequest(this.bucketName, storageaccess.getKey().toString(), file));
+		File file = new File(storageaccess.getFile());
 
-			fileName = ((AmazonS3Client) s3client).getResourceUrl(this.bucketName,
-					storageaccess.getFolder() + File.separator + storageaccess.getKey());
+		logger.debug("File Is Uploading Wait..... :" + storageaccess);
+		logger.debug("File Name : " + file);
 
-			logger.debug("Folder Name :" + storageaccess.getFolder());
-			logger.debug("File Name :" + storageaccess.getKey());
-			logger.debug("Uploaded successfully..");
-		} catch (AmazonServiceException ase) {
-			logger.debug("Caught an AmazonServiceException, which " + "means your request made it "
-					+ "to Amazon S3, but was rejected with an error response" + " for some reason.");
-			logger.debug("Error Message:    " + ase.getMessage());
-			logger.debug("HTTP Status Code: " + ase.getStatusCode());
-			logger.debug("AWS Error Code:   " + ase.getErrorCode());
-			logger.debug("Error Type:       " + ase.getErrorType());
-			logger.debug("Request ID:       " + ase.getRequestId());
-		} catch (AmazonClientException ace) {
-			logger.debug("Caught an AmazonClientException, which " + "means the client encountered "
-					+ "an internal error while trying to " + "communicate with S3, "
-					+ "such as not being able to access the network.");
-			logger.debug("Error Message: " + ace.getMessage());
-		}
+		TransferManager transferManager = TransferManagerBuilder.standard().withS3Client(s3client)
+				.withMultipartUploadThreshold((long) (5 * 1024 * 1025)).build();
+
+		Upload upload = transferManager.upload(this.bucketName, storageaccess.getKey().toString(), file);
+
+		upload.waitForCompletion();
+
+		fileName = ((AmazonS3Client) s3client).getResourceUrl(this.bucketName,
+				storageaccess.getFolder() + File.separator + storageaccess.getKey());
+
+		logger.debug("Folder Name :" + storageaccess.getFolder());
+		logger.debug("File Name :" + storageaccess.getKey());
+		logger.debug("Uploaded successfully..");
+		if (upload.isDone())
+			transferManager.shutdownNow();
 		return fileName;
 
 	}
