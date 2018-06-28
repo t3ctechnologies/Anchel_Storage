@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.sql.SQLException;
-import java.util.List;
 import java.util.Properties;
 
 import org.slf4j.Logger;
@@ -20,16 +19,11 @@ import com.amazonaws.AmazonServiceException;
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.GetObjectRequest;
-import com.amazonaws.services.s3.model.ListObjectsRequest;
-import com.amazonaws.services.s3.model.ObjectListing;
 import com.amazonaws.services.s3.model.S3Object;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
 import com.t3c.anchel.common.DbConfiguration;
 import com.t3c.anchel.common.SMConstants;
-import com.t3c.anchel.dto.StorageAccessDTO;
 
 public class StorageAwsImpl extends StorageAdapterClass {
 
@@ -37,59 +31,40 @@ public class StorageAwsImpl extends StorageAdapterClass {
 	String secretkey = null;
 	Properties properties = null;
 	String region = null;
+	String bucketName = null;
 
 	public StorageAwsImpl() {
 		properties = new DbConfiguration().getDbProperties();
 		this.accesskey = properties.getProperty(SMConstants.ACCESS_KEY);
 		this.secretkey = properties.getProperty(SMConstants.SECRET_KEY);
 		this.region = properties.getProperty(SMConstants.CLIENT_REGION);
+		this.bucketName = properties.getProperty(SMConstants.BUCKET_NAME);
 	}
 
 	private static final Logger logger = LoggerFactory.getLogger(StorageAwsImpl.class);
 
-	public StorageAccessDTO sendFile(String filePath, String folderName, Long key) {
-		logger.debug("file : {}, folder name :{}, key :{} received to store in amazone s3 Bucket.", filePath,
-				folderName, key);
-		StorageAccessDTO storagetypeDTO = null;
-		storagetypeDTO = new StorageAccessDTO();
-		storagetypeDTO.setFile(filePath);
-		storagetypeDTO.setFolder(folderName);
-		storagetypeDTO.setKey(key);
+	public void sendFile(String filePath) {
+		logger.debug("file : {} is uploading into amazone s3 Bucket.", filePath);
 
 		String createpath1 = filePath.substring(filePath.indexOf('_') + 1);
 		String createpath2 = createpath1.substring(createpath1.indexOf('_') + 1);
 		File createFile = new File(filePath);
-		String createpath3 = createFile.getParent()+File.separator.concat(createpath2);
-		String insertedFileName = null;
+		String createpath3 = createFile.getParent() + File.separator.concat(createpath2);
 		try {
-			insertedFileName = new StorageAwsImpl().add(storagetypeDTO);
-			
+			new StorageAwsImpl().add(filePath, createpath2);
+			createSuccessFile(createpath3);
 		} catch (AmazonServiceException e1) {
 			e1.printStackTrace();
 			createErrorFile(createpath3);
-		} catch (AmazonClientException e1) {
-			e1.printStackTrace();
+		} catch (AmazonClientException e) {
+			e.printStackTrace();
 			createErrorFile(createpath3);
-		} catch (InterruptedException e1) {
-			e1.printStackTrace();
+		} catch (InterruptedException e) {
+			e.printStackTrace();
 			createErrorFile(createpath3);
+		} catch (SQLException e) {
+			e.printStackTrace();
 		}
-		storagetypeDTO.setUrl(insertedFileName);
-		if (!((insertedFileName) == null)) {
-			createSuccessFile(createpath3);
-			AccessClass accessClass = new AccessClass();
-			try {
-				String filePath1 = filePath.substring(filePath.indexOf('_') + 1);
-				String filePath2 = filePath1.substring(filePath1.indexOf('_') + 1);
-				accessClass.insert(filePath2, key, insertedFileName);
-			} catch (SQLException e) {
-				e.printStackTrace();
-			}
-		}
-		logger.debug("Inserted File is :" + insertedFileName);
-
-		return storagetypeDTO;
-
 	}
 
 	private void createSuccessFile(String filePath) {
@@ -108,54 +83,16 @@ public class StorageAwsImpl extends StorageAdapterClass {
 	}
 
 	public void DeleteFile(String bucketName, String folderName) {
-		credentials = new BasicAWSCredentials(this.accesskey, this.secretkey);
-		s3client = AmazonS3ClientBuilder.standard().withCredentials(new AWSCredentialsProvider() {
-			public void refresh() {
-			}
 
-			public AWSCredentials getCredentials() {
-				return credentials;
-			}
-		}).withRegion(this.region).build();
-		java.util.List<S3ObjectSummary> fileList = s3client.listObjects(bucketName, folderName).getObjectSummaries();
-		for (S3ObjectSummary file : fileList) {
-			s3client.deleteObject(bucketName, file.getKey());
-		}
-		s3client.deleteObject(bucketName, folderName);
-		logger.debug("Deleted Successfully");
 	}
 
 	@Override
 	public void GetAll(String bucketName, String folderName) {
-		credentials = new BasicAWSCredentials(this.accesskey, this.secretkey);
-		s3client = new AmazonS3Client(credentials);
-		logger.debug("Listing objects");
-		ObjectListing objectListing = s3client
-				.listObjects(new ListObjectsRequest().withBucketName(bucketName).withPrefix("Some_Folder"));
-		List<S3ObjectSummary> objList = null;
-		if (objectListing != null) {
-			objList = objectListing.getObjectSummaries();
-		}
-		int i = 1;
-		for (S3ObjectSummary objectSummary : objList) {
-			logger.debug(
-					"id: {}, bucketName :{}, key :{}, eTag :{}, size :{}, lastModified :{}, storageClass :{}, owner :{}",
-					i, objectSummary.getBucketName(), objectSummary.getKey(), objectSummary.getETag(),
-					objectSummary.getSize(), objectSummary.getLastModified(), objectSummary.getStorageClass(),
-					objectSummary.getOwner());
-			i++;
-		}
 
 	}
 
-	/*
-	 * public static void GetFile(String strFileName, String strFolderName){
-	 * GetById(G_DEFAULT_BUCKET_NAME, G_DEFAULT_FOLDER_NAME, strFileName,
-	 * strFolderName + "//" + strFileName); }
-	 */
-
-	public void GetById(String bucketName, String folderName, String key, String targetFile) {
-		logger.debug("getting object details for folderName :{}, key :{}", folderName, key);
+	public void GetById(String targetFile) {
+		logger.debug("getting object details for bucketname :{}, file :{}", this.bucketName, targetFile);
 		credentials = new BasicAWSCredentials(this.accesskey, this.secretkey);
 		s3client = AmazonS3ClientBuilder.standard().withCredentials(new AWSCredentialsProvider() {
 			public void refresh() {
@@ -167,8 +104,8 @@ public class StorageAwsImpl extends StorageAdapterClass {
 		}).withRegion(this.region).build();
 
 		try {
-
-			S3Object s3object = s3client.getObject(new GetObjectRequest(bucketName, key));
+			String fileID = new File(targetFile).getName();
+			S3Object s3object = s3client.getObject(new GetObjectRequest(this.bucketName, fileID));
 			if (s3object != null) {
 				InputStream reader = new BufferedInputStream(s3object.getObjectContent());
 				File tFile = new File(targetFile);
@@ -180,6 +117,7 @@ public class StorageAwsImpl extends StorageAdapterClass {
 					while ((read = reader.read()) != -1) {
 						writer.write(read);
 					}
+					logger.debug("File writing is processed for fileID :" + fileID);
 					writer.flush();
 					writer.close();
 					reader.close();
@@ -222,8 +160,8 @@ public class StorageAwsImpl extends StorageAdapterClass {
 	}
 
 	@Override
-	public StorageAccessDTO sendFile(String filePath, String folderName, String key) throws FileNotFoundException {
-		// TODO Auto-generated method stub
-		return null;
+	public void sendFile(String filePath, String folderName, String key) throws FileNotFoundException {
+
 	}
+
 }

@@ -3,6 +3,8 @@ package com.t3c.anchel.storageregistration.Implements;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.net.BindException;
+import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 
@@ -17,19 +19,19 @@ import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.model.S3ObjectSummary;
-import com.amazonaws.services.s3.transfer.TransferManager;
-import com.amazonaws.services.s3.transfer.TransferManagerBuilder;
-import com.amazonaws.services.s3.transfer.Upload;
+import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
+import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
+import com.amazonaws.services.s3.model.InitiateMultipartUploadResult;
+import com.amazonaws.services.s3.model.PartETag;
+import com.amazonaws.services.s3.model.UploadPartRequest;
+import com.amazonaws.services.s3.model.UploadPartResult;
 import com.t3c.anchel.common.DbConfiguration;
 import com.t3c.anchel.common.SMConstants;
-import com.t3c.anchel.dto.StorageAccessDTO;
 
 public abstract class StorageAdapterClass {
 
-	private static final Logger logger = LoggerFactory.getLogger(StorageAccessDTO.class);
+	private static final Logger logger = LoggerFactory.getLogger(StorageAdapterClass.class);
 
-	String fileName = null;
 	// AmazoneDTO amazoneDTO = null;
 	static AmazonS3 s3client = null;
 	static AWSCredentials credentials = null;
@@ -70,13 +72,12 @@ public abstract class StorageAdapterClass {
 
 	public abstract void DeleteFile(String bucketName, String folderName);
 
-	public abstract StorageAccessDTO sendFile(String filePath, String folderName, String key)
-			throws FileNotFoundException;
+	public abstract void sendFile(String filePath, String folderName, String key) throws FileNotFoundException;
 
 	public abstract void GetAll(String bucketName, String folderName);
 
-	public String add(StorageAccessDTO storageaccess) throws AmazonServiceException, AmazonClientException, InterruptedException {
-		logger.debug("Inserting amazoneDTO : {} to aws S3 bucket.", storageaccess);
+	public void add(String filepath, String fileID) throws AmazonServiceException, AmazonClientException, InterruptedException, SQLException {
+		logger.debug("Inserting amazoneDTO : {} to aws S3 bucket.");
 
 		credentials = new BasicAWSCredentials(this.accesskey, this.secretkey);
 		s3client = AmazonS3ClientBuilder.standard().withCredentials(new AWSCredentialsProvider() {
@@ -88,46 +89,42 @@ public abstract class StorageAdapterClass {
 			}
 		}).withRegion(this.region).build();
 
-		File file = new File(storageaccess.getFile());
+		File file = new File(filepath);
+		long contentLength = file.length();
+		long partSize = 5 * 1024 * 1024;
 
-		logger.debug("File Is Uploading Wait..... :" + storageaccess);
+		logger.debug("File Is Uploading Wait..... :");
 		logger.debug("File Name : " + file);
 
-		TransferManager transferManager = TransferManagerBuilder.standard().withS3Client(s3client)
-				.withMultipartUploadThreshold((long) (5 * 1024 * 1025)).build();
+		List<PartETag> partETags = new ArrayList<PartETag>();
 
-		Upload upload = transferManager.upload(this.bucketName, storageaccess.getKey().toString(), file);
+		InitiateMultipartUploadRequest initRequest = new InitiateMultipartUploadRequest(this.bucketName, fileID);
+		InitiateMultipartUploadResult initResponse = s3client.initiateMultipartUpload(initRequest);
 
-		upload.waitForCompletion();
+		long filePosition = 0;
+		for (int i = 1; filePosition < contentLength; i++) {
+			partSize = Math.min(partSize, (contentLength - filePosition));
+			logger.debug("Multipart File Uploading is in Progress with Part " + i);
 
-		fileName = ((AmazonS3Client) s3client).getResourceUrl(this.bucketName,
-				storageaccess.getFolder() + File.separator + storageaccess.getKey());
+			UploadPartRequest uploadRequest = new UploadPartRequest().withBucketName(this.bucketName).withKey(fileID)
+					.withUploadId(initResponse.getUploadId()).withPartNumber(i).withFileOffset(filePosition)
+					.withFile(file).withPartSize(partSize);
 
-		logger.debug("Folder Name :" + storageaccess.getFolder());
-		logger.debug("File Name :" + storageaccess.getKey());
-		logger.debug("Uploaded successfully..");
-		if (upload.isDone())
-			transferManager.shutdownNow();
-		return fileName;
+			UploadPartResult uploadResult = s3client.uploadPart(uploadRequest);
+			partETags.add(uploadResult.getPartETag());
 
-	}
-
-	public StorageAccessDTO get(String id) {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@SuppressWarnings("unchecked")
-	public boolean delete(StorageAccessDTO storageaccess) {
-		credentials = new BasicAWSCredentials(this.accesskey, this.secretkey);
-		s3client = new AmazonS3Client(credentials);
-		java.util.List<S3ObjectSummary> fileList = (List<S3ObjectSummary>) s3client.listObjects(this.bucketName,
-				storageaccess.getFolder());
-		for (S3ObjectSummary file : fileList) {
-
-			s3client.deleteObject(this.bucketName, file.getKey());
+			filePosition += partSize;
 		}
-		return false;
+
+		CompleteMultipartUploadRequest compRequest = new CompleteMultipartUploadRequest(this.bucketName, fileID,
+				initResponse.getUploadId(), partETags);
+		s3client.completeMultipartUpload(compRequest);
+		logger.debug("Multipart upload is completed with file id :" + fileID);
+		String url = ((AmazonS3Client) s3client).getResourceUrl(this.bucketName, fileID);
+		logger.debug("File uploading into amazons3 is completed :" +url);
+		
+		AccessClass accessClass = new AccessClass();
+		accessClass.insert(fileID, contentLength, url);
 	}
 
 }

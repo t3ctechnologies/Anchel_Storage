@@ -30,18 +30,18 @@ public class AccessClass {
 
 	}
 
-	public void insert(String uuid, long specialKey, String s3url) throws SQLException {
+	public void insert(String uuid, long size, String s3url) throws SQLException {
 
-		logger.debug("Updating file details with uuid {}, specialkey {} and s3url {} " ,uuid,specialKey,s3url);
+		logger.debug("Updating file details with uuid {}, and size {} " ,uuid);
 		try {
 			Connection conn = (Connection) DriverManager.getConnection(url, user, password);
-			String query = " INSERT into S3BUCKETMAPPING (uuid, specialKey, s3fileurl, processedOn, deleted)"
+			String query = " INSERT into S3BUCKETMAPPING (uuid, size, s3fileurl, processedOn, deleted)"
 					+ " values (?, ?, ?, ?, ?)";
 
 			PreparedStatement preparedStmt = conn.prepareStatement(query);
 
 			preparedStmt.setString(1, uuid);
-			preparedStmt.setLong(2, specialKey);
+			preparedStmt.setLong(2, size);
 			preparedStmt.setString(3, s3url);
 			preparedStmt.setTimestamp(4, new Timestamp(System.currentTimeMillis()));
 			preparedStmt.setBoolean(5, false);
@@ -55,26 +55,4 @@ public class AccessClass {
 			e.printStackTrace();
 		}
 	}
-
-	public String TakeSpecialId(String uuid) {
-		String splId = null;
-		try {
-			Connection conn = (Connection) DriverManager.getConnection(url, user, password);
-			String query = " SELECT specialKey FROM S3BUCKETMAPPING WHERE uuid =?";
-
-			PreparedStatement preparedStmt = conn.prepareStatement(query);
-
-			preparedStmt.setNString(1, uuid);
-
-			ResultSet rs = preparedStmt.executeQuery();
-			rs.next();
-			splId = rs.getString(1);
-
-			conn.close();
-		} catch (SQLException e) {
-			e.printStackTrace();
-		}
-		return splId;
-	}
-
 }
